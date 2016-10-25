@@ -9,14 +9,12 @@ document.addEventListener("DOMContentLoaded", onLoad);
 
 var renderer, camera, scene, controls;
 var bowl;
-
-const LARROW = 37;
-const UARROW = 38;
-const RARROW = 39;
-const DARROW = 40;
+const tossScale = 50;
 
 function onLoad() {
-    document.addEventListener("keydown", useKeyDown);
+
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("mouseup", onMouseUp);
     window.addEventListener('resize', onWindowResize, false);
     sceneSetup();
     initialDraw();
@@ -24,22 +22,32 @@ function onLoad() {
     animate();
 }
 
-function useKeyDown(event) {
-    console.log(event.keyCode);
-    switch(event.keyCode) {
-        case LARROW:
-            break;
-        case RARROW:
-            break;
-        case UARROW:
-            tossCubes();
-            break;
-        case DARROW:
-            bowl.rotation.x += 0.1;
-            bowl.__dirtyRotation = true;
-            break;
-    } // switch
-} // function useKeyDown()
+var isDown = false; // whether mouse is pressed
+var startCoords = []; // 'grab' coordinates when pressing mouse
+var last = [0, 0]; // previous coordinates of mouse release
+
+function onMouseDown(e) {
+    isDown = true;
+
+    startCoords = [
+        e.offsetX , // set start coordinates
+        e.offsetY
+    ];
+}
+
+function onMouseUp(e) {
+    isDown = false;
+
+    last = [
+        e.offsetX - startCoords[0], // set last coordinates
+        e.offsetY - startCoords[1]
+    ];
+    var impulseX = (last[0] / screen.width)*tossScale;
+    var impulseY = Math.abs((last[1] / screen.height)*tossScale); // toss it upwards only
+    tossCubes(impulseX, impulseY);
+//    console.log('iX: ' + impulseX + ' iY' + impulseY);
+//    console.log(last);
+}
 
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -55,72 +63,54 @@ function sceneSetup() {
     camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 1, 1000);
     camera.position.set(0, 0, 60);
 
-    scene = new Physijs.Scene({reportSize: 2, fixeTimeStep:1/120});
+    scene = new Physijs.Scene({reportSize: 30, fixedTimeStep:1/120});
     scene.setGravity(new THREE.Vector3(0, -10, 0));
     scene.add(camera);
 
-    var light = new THREE.PointLight(0xFFFFFF, 4, 0);
+    var light = new THREE.PointLight(0xa0a0a0, 0.5, 0);
     light.position.set(50, 70, 100);
     scene.add(light);
 
-    controls = new THREE.TrackballControls(camera, renderer.domElement);
-    controls.rotateSpeed = 1.0;
-    controls.zoomSpeed = 1.2;
-    controls.panSpeed = 0.8;
-    controls.noZoom = false;
-    controls.noPan = true;
-    controls.staticMoving = true;
-    controls.dynamicDampingFactor = 0.3;
-    controls.target = scene.position;
+    light = new THREE.AmbientLight(0x808080, 1);
+    scene.add(light);
+    // controls = new THREE.TrackballControls(camera, renderer.domElement);
+    // controls.rotateSpeed = 1.0;
+    // controls.zoomSpeed = 1.2;
+    // controls.panSpeed = 0.8;
+    // controls.noZoom = false;
+    // controls.noPan = true;
+    // controls.staticMoving = true;
+    // controls.dynamicDampingFactor = 0.3;
+    // controls.target = scene.position;
 } // function sceneSetup()
 
-function initialDraw() {
-    // make a progmamtic curve
-    var curve = new THREE.EllipseCurve(
-        0, 0, // start x and y
-        7, 7, // radius on x and radius on y. These are equal because I am making a circle
-        0, Math.PI/2, // Start at 0 and go 45 degrees. Could start at any angle.
-        false           // Clockwise = true. Counterclockwise = false; Using CCW
+function createSphereMesh(radius, segments, material) {
+    var geometry = new THREE.SphereGeometry(radius, segments, segments);
+    return new Physijs.ConcaveMesh(
+        geometry,
+        material,
+        0 // mass
     );
+} // function createSphereMesh()
 
-    var precision = 30;
-    var points = curve.getSpacedPoints(precision/2); // get xx points along the curve
+function initialDraw() {
 
-    // begin lathe settings
+    // Create inner sphere
+    var material = new THREE.MeshBasicMaterial( { transparent: true, opacity: 0 });
+    scene.add(createSphereMesh(6.9, 32, material));
 
-    var segments = precision;
-
-    var phiStart = 0; // start angle of lathe at 0
-    var phiLength = Math.PI*2; // end angle of lathe *full circle*
-    // end lathe settings
-
-    // take the points from the quarter circle curve, then lathe with settings above.
-    var geometry = new THREE.LatheGeometry(points, segments, phiStart, phiLength);
-  //  geometry = new THREE.SphereGeometry(7, 30, 30, 0, Math.PI*2, 0, Math.PI);
-    var material = new THREE.MeshPhongMaterial( {
-        color:0x1133AA,
-        emissive: 0x443311,
-        opacity:0.5,
+    // Create outer sphere
+    material = new THREE.MeshPhongMaterial( {
+        color:0x909090,
+        //emissive: 0x443311,
+        specular: 0x0000F0,
+        opacity:.5,
         transparent:true,
         side: THREE.DoubleSide, // important
-        shading: THREE.FlatShading
+        shading: THREE.SmoothShading
     });
 
-    var bowlBottom = new Physijs.ConcaveMesh(geometry, material);
-    bowlBottom.rotation.x = Math.PI;
-   // bowlBottom.rotation.y = Math.PI/2;
-    bowlBottom.mass = 0;
-    bowl = new Physijs.ConcaveMesh(geometry, material);
-    bowl.mass = 0;
-    bowl.rotation.x = -Math.PI/2;
-  //  bowl.add(bowlBottom);
-  //  scene.add(bowl);
-
-    material = new THREE.MeshBasicMaterial( { transparent: true, opacity: 0 });
-    geometry = new THREE.SphereGeometry(6.5, 30, 30, 0, Math.PI*2, 0, Math.PI/2);
-    var innerBowl = new Physijs.ConcaveMesh(geometry, material);
-    innerBowl.mass = 0;
-    scene.add(innerBowl);
+    scene.add(createSphereMesh(7, 32, material));
 } // function initialDraw()
 
 
@@ -129,22 +119,23 @@ function makeCubes() {
     for (var i = 0; i < 30; i++) {
         var box1=new Physijs.BoxMesh(
             new THREE.CubeGeometry(0.5, 0.5, 0.5),
-            new THREE.MeshBasicMaterial({color: 0xFF0000}),
+            new THREE.MeshNormalMaterial(),
             1.0
         );
         box1.position.set(Math.random()*5-2.5, Math.random()*5-2.5, Math.random()*5-2.5);
         scene.add(box1);
         cubeArray.push(box1);
-    }
-}
+    } // for i
+} // function makeCubes()
 
-function tossCubes() {
+function tossCubes(xImpulse, yImpulse) {
     for (var i = 0; i < cubeArray.length; i++) {
-        cubeArray[i].applyCentralImpulse(new THREE.Vector3(0, 20, 0));
-    }
-}
+        cubeArray[i].applyCentralImpulse(new THREE.Vector3(xImpulse, yImpulse, 0));
+    } // for i
+} // function tossCubes()
+
 function animate() {
-    controls.update();
+ //   controls.update();
     //  testCollisions();
     scene.simulate();
     renderer.render(scene, camera);
